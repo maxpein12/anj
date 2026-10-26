@@ -1,0 +1,2 @@
+# DUNGEON CONQUEST BATTLE HISTORY
+# date_time | player_id | username | enemy_id | enemy_name | result | turns | gold | score

@@ -1,13 +1,13 @@
 # DUNGEON CONQUEST ROOM RECORDS (GRAPH VERTICES)
-# room_id|name|description
-ROOM-000|Dungeon Entrance|A cold stone gate where every expedition begins.
-ROOM-001|Rotting Sewers|Knee-deep filth and the scratching of claws.
-ROOM-002|Forsaken Tunnel|A collapsed mining tunnel littered with bones.
-ROOM-003|Burial Chambers|Rows of opened coffins and drifting ash.
-ROOM-004|Bloodstone Hall|Red crystals pulse inside the walls.
-ROOM-005|Execution Pit|A sunken arena stained by old sentences.
-ROOM-006|Infernal Prison|Burning cells that never cool down.
-ROOM-007|War-Torn Catacombs|Broken shields of a forgotten army.
-ROOM-008|Black Iron Citadel|A fortress forged from black iron.
-ROOM-009|Hall of Lost Souls|Whispers of the fallen echo here.
-ROOM-010|Throne of Ruin|The seat of the World Eater and the only exit.
+# room_id  | name               | description
+  ROOM-000 | Dungeon Entrance   | A cold stone gate where every expedition begins.
+  ROOM-001 | Rotting Sewers     | Knee-deep filth and the scratching of claws.
+  ROOM-002 | Forsaken Tunnel    | A collapsed mining tunnel littered with bones.
+  ROOM-003 | Burial Chambers    | Rows of opened coffins and drifting ash.
+  ROOM-004 | Bloodstone Hall    | Red crystals pulse inside the walls.
+  ROOM-005 | Execution Pit      | A sunken arena stained by old sentences.
+  ROOM-006 | Infernal Prison    | Burning cells that never cool down.
+  ROOM-007 | War-Torn Catacombs | Broken shields of a forgotten army.
+  ROOM-008 | Black Iron Citadel | A fortress forged from black iron.
+  ROOM-009 | Hall of Lost Souls | Whispers of the fallen echo here.
+  ROOM-010 | Throne of Ruin     | The seat of the World Eater and the only exit.

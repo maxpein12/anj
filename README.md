@@ -15,13 +15,14 @@ python3 DS_MidtermProject2_Transaction2_BariteJMercadoR.py
 Run it from this folder so it uses the `.txt` record files here. If a file is
 missing, the game recreates it with the default records.
 
-## Default logins
+## Default login
 
-| Role   | Username                              | Password         |
-|--------|---------------------------------------|------------------|
-| Admin  | `admin`                               | `admin123`       |
-| Player | `player`                              | `player123`      |
-| Player | `knight`, `ranger`, `mage`, `rogue`   | name + `123`     |
+| Role  | Username | Password   |
+|-------|----------|------------|
+| Admin | `admin`  | `admin123` |
+
+There are no player accounts at first. Players create their own account
+with "Create New Account" on the login screen.
 
 ## Sections
 
@@ -37,7 +38,7 @@ missing, the game recreates it with the default records.
 | Structure | Where it is used | Operations |
 |-----------|------------------|------------|
 | Queue | Encounter Queue of enemies to fight | enqueue, dequeue, peek, display, empty check |
-| Stack | Battle Action History | push, pop (undo), peek, display, empty check |
+| Stack | Battle Action History | push, pop (remove latest log entry), peek, display, empty check |
 | Graph | Dungeon map: rooms are vertices, passages are two-way edges | add/remove passage, BFS shortest route, DFS traversal, reachability |
 
 ## Record files

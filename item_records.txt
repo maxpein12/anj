@@ -1,7 +1,7 @@
 # DUNGEON CONQUEST ITEM RECORDS
-# item_id|name|effect|power|price|max_carry|description
-ITM-001|Health Potion|heal|35|30|5|A bitter red brew that closes wounds.
-ITM-002|Strength Tonic|boost|50|70|3|Fills your arms with burning strength.
-ITM-003|Paralysis Bomb|stun|2|110|2|Releases a numbing cloud of spores.
-ITM-004|Poison Dagger|damage|35|120|2|A throwing blade coated in venom.
-ITM-005|Smoke Bomb|escape|0|40|2|A thick cloud that hides your retreat.
+# item_id | name           | effect | power | price | max_carry | description
+  ITM-001 | Health Potion  | heal   | 35    | 30    | 5         | A bitter red brew that closes wounds.
+  ITM-002 | Strength Tonic | boost  | 50    | 70    | 3         | Fills your arms with burning strength.
+  ITM-003 | Paralysis Bomb | stun   | 2     | 110   | 2         | Releases a numbing cloud of spores.
+  ITM-004 | Poison Dagger  | damage | 35    | 120   | 2         | A throwing blade coated in venom.
+  ITM-005 | Smoke Bomb     | escape | 0     | 40    | 2         | A thick cloud that hides your retreat.

@@ -1,5 +1,9 @@
 import os
+import math
 import random
+import sys
+import textwrap
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -81,18 +85,7 @@ ITEM_EFFECTS = {
 DEFAULT_ACCOUNTS = [
     # username, password, role, hp, max_hp, atk, gold, score, wins, losses,
     # defeated ids, completed levels, inventory
-    ("admin", "admin123", "Admin", 100, 100, 14, 0, 0, 0, 0, [], [], {}),
-    ("player", "player123", "Player", 100, 100, 14, 60, 0, 0, 0,
-     [], [], {"ITM-001": 2}),
-    ("knight", "knight123", "Player", 95, 120, 19, 110, 180, 3, 1,
-     ["ENM-001", "ENM-002", "ENM-003"], ["Weak"], {"ITM-001": 1}),
-    ("ranger", "ranger123", "Player", 70, 100, 14, 115, 100, 2, 0,
-     ["ENM-001", "ENM-002"], [], {"ITM-001": 1, "ITM-005": 1}),
-    ("mage", "mage123", "Player", 100, 100, 14, 45, 60, 1, 2,
-     ["ENM-002"], [], {"ITM-002": 1}),
-    ("rogue", "rogue123", "Player", 110, 140, 24, 210, 540, 6, 2,
-     ["ENM-001", "ENM-002", "ENM-003", "ENM-004", "ENM-005", "ENM-006"],
-     ["Weak", "Intermediate"], {"ITM-001": 3, "ITM-004": 1})
+    ("admin", "admin123", "Admin", 100, 100, 14, 0, 0, 0, 0, [], [], {})
 ]
 
 DEFAULT_ENEMIES = [
@@ -240,14 +233,92 @@ def print_menu_row(*options, width=26):
     print("".join(f"{option:<{width}}" for option in options).rstrip())
 
 
+def is_number_text(text):
+    # True for values such as 55, 55/100, +30 or 75%
+    digits = text.replace("/", "").replace("%", "").replace("+", "")
+    return digits.replace("-", "", 1).isdigit()
+
+
+def table_lines(columns, rows, max_width=24):
+    # Builds a bordered text table. Long values wrap onto extra lines,
+    # "\n" starts a new line inside a cell, and number columns are
+    # aligned to the right.
+    rows = [[str(value) for value in row] for row in rows]
+
+    widths = []
+    numeric = []
+
+    for index, title in enumerate(columns):
+        values = [row[index] for row in rows]
+        longest = max(
+            [len(part) for value in values for part in value.split("\n")],
+            default=0
+        )
+        widths.append(max(len(title), min(longest, max_width)))
+        numeric.append(bool(values) and all(
+            is_number_text(value) or value == "-" for value in values
+        ))
+
+    def wrap_cell(value, width):
+        lines = []
+
+        for part in value.split("\n"):
+            lines += textwrap.wrap(part, width) or [""]
+
+        return lines
+
+    def text_row(cells):
+        return "| " + " | ".join(cells) + " |"
+
+    border = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
+    lines = [
+        border,
+        text_row(f"{title:<{w}}" for title, w in zip(columns, widths)),
+        border.replace("-", "=")
+    ]
+
+    wrapped_rows = [
+        [wrap_cell(value, w) for value, w in zip(row, widths)]
+        for row in rows
+    ]
+    multi_line = any(len(cell) > 1 for row in wrapped_rows for cell in row)
+
+    for number, cells in enumerate(wrapped_rows):
+        height = max(len(cell) for cell in cells)
+
+        for line in range(height):
+            parts = []
+
+            for cell, w, right in zip(cells, widths, numeric):
+                text = cell[line] if line < len(cell) else ""
+                parts.append(f"{text:>{w}}" if right else f"{text:<{w}}")
+
+            lines.append(text_row(parts))
+
+        # Rows that wrap get a divider so each record stays readable
+        if multi_line and number + 1 < len(wrapped_rows):
+            lines.append(border)
+
+    lines.append(border)
+    return lines
+
+
+def print_table(columns, rows, max_width=24):
+    for line in table_lines(columns, rows, max_width):
+        print(line)
+
+
 def clear_screen():
     # Clears the console so each menu starts on a fresh screen
     os.system("cls" if os.name == "nt" else "clear")
 
 
+INVALID_CHOICE_TEXT = "Invalid menu option. Please enter a valid choice."
+
+
 def invalid_choice():
-    print("\nInvalid menu option. Please enter a valid choice.")
-    pause()
+    # The menu is shown again right away, so no Enter press is needed
+    print(f"\n{INVALID_CHOICE_TEXT}")
 
 
 def now_text():
@@ -354,6 +425,164 @@ def hp_bar(current, maximum, width=20):
 
 
 # ---------------------------------------------------------------
+# BATTLE ANIMATIONS
+# Small text animations that make the battle screen feel alive.
+# They are skipped when the output is not a real terminal.
+# ---------------------------------------------------------------
+
+ANIMATIONS_ON = sys.stdout.isatty()
+
+if os.name == "nt":
+    # Turns on colour codes in the Windows console
+    os.system("")
+
+COLORS = {
+    "red": "\033[91m", "green": "\033[92m", "yellow": "\033[93m",
+    "blue": "\033[94m", "magenta": "\033[95m", "cyan": "\033[96m",
+    "bold": "\033[1m", "reset": "\033[0m"
+}
+
+
+def hp_color(current, maximum):
+    # Green when healthy, yellow when hurt, red when in danger
+    percent = current * 100 // maximum if maximum > 0 else 0
+
+    if percent > 60:
+        return "green"
+    return "yellow" if percent >= 30 else "red"
+
+
+def color(text, name):
+    if not ANIMATIONS_ON:
+        return text
+    return f"{COLORS[name]}{text}{COLORS['reset']}"
+
+
+def wait(seconds):
+    if ANIMATIONS_ON:
+        time.sleep(seconds)
+
+
+def draw_line(text):
+    # Redraws the current console line in place
+    sys.stdout.write("\r\033[K" + text)
+    sys.stdout.flush()
+
+
+def type_out(text, delay=0.02, name=None):
+    # Prints text one letter at a time
+    if not ANIMATIONS_ON:
+        print(text)
+        return
+
+    for letter in text:
+        sys.stdout.write(color(letter, name) if name else letter)
+        sys.stdout.flush()
+        time.sleep(delay)
+    print()
+
+
+def animate_strike(attacker, target, missed=False, critical=False):
+    # A projectile flies from the attacker to the target
+    if not ANIMATIONS_ON:
+        return
+
+    gap = 24
+    shot = "==>>" if critical else "-->"
+
+    for step in range(0, gap - len(shot) + 1, 2):
+        lane = " " * step + shot + " " * (gap - len(shot) - step)
+        draw_line(f"  {attacker} {color(lane, 'yellow')} {target}")
+        time.sleep(0.025)
+
+    if missed:
+        draw_line(f"  {attacker} {' ' * gap} {target}  "
+                  + color("~ whoosh ~", "cyan"))
+        time.sleep(0.35)
+    else:
+        burst = "*CRITICAL*" if critical else "*SLASH*"
+        # The target flashes and shakes when it is hit
+        for offset in (0, 2, 0, 2, 0):
+            draw_line(f"  {attacker} {' ' * (gap + offset)} "
+                      + color(f"{target} {burst}", "red"))
+            time.sleep(0.07)
+        time.sleep(0.15)
+
+    draw_line("")
+
+
+def animate_hp_change(label, before, after, maximum, width=20):
+    # Drains (or refills) the health bar a little at a time
+    if not ANIMATIONS_ON or before == after:
+        return
+
+    bar_color = "green" if after > before else "red"
+    frames = 12
+
+    for frame in range(1, frames + 1):
+        value = round(before + (after - before) * frame / frames)
+        draw_line(f"  {label}: "
+                  + color(hp_bar(value, maximum, width), bar_color)
+                  + f" {value}/{maximum} HP")
+        time.sleep(0.04)
+
+    print()
+
+
+def animate_effect(text, name, symbol="*", frames=6):
+    # Short sparkle used for potions, guards and status effects
+    if not ANIMATIONS_ON:
+        return
+
+    for frame in range(frames):
+        pad = symbol * (frame % 3 + 1)
+        draw_line(color(f"  {pad} {text} {pad}", name))
+        time.sleep(0.09)
+
+    draw_line("")
+
+
+def animate_battle_intro(mob):
+    # "VS" splash shown when a battle starts
+    if not ANIMATIONS_ON:
+        return
+
+    name = "PLAYER"
+    for gap in range(30, 3, -3):
+        draw_line(color(name, "cyan") + " " * gap
+                  + color("VS", "bold") + " " * gap
+                  + color(mob["name"].upper(), "red"))
+        time.sleep(0.04)
+
+    for _ in range(3):
+        draw_line(color(f"{name}   >>  VS  <<   {mob['name'].upper()}",
+                        "yellow"))
+        time.sleep(0.12)
+        draw_line(f"{name}   >>  VS  <<   {mob['name'].upper()}")
+        time.sleep(0.12)
+
+    print()
+
+
+def animate_banner(text, name):
+    # Big blinking banner for victory and defeat
+    border = "+" + "-" * (len(text) + 6) + "+"
+    middle = f"|   {text}   |"
+
+    if ANIMATIONS_ON:
+        for _ in range(3):
+            draw_line(color(middle, name))
+            time.sleep(0.15)
+            draw_line(" " * len(middle))
+            time.sleep(0.1)
+        draw_line("")
+
+    print(color(border, name))
+    print(color(middle, name))
+    print(color(border, name))
+
+
+# ---------------------------------------------------------------
 # FILE HANDLING
 # ---------------------------------------------------------------
 
@@ -381,14 +610,29 @@ def read_record_rows(path):
 
 
 def write_record_rows(path, title, columns, rows):
-    # Writes records into a "|" separated text file
+    # Writes records into a "|" separated text file. The columns are
+    # padded so the file reads like a table (spaces are ignored when
+    # the file is loaded again).
+    names = columns.split("|")
+    texts = [[str(value) for value in row] for row in rows]
+    widths = [
+        max([len(name)] + [len(row[i]) for row in texts if i < len(row)])
+        for i, name in enumerate(names)
+    ]
+
+    def padded(values):
+        return " | ".join(
+            value.ljust(widths[i]) if i < len(widths) else value
+            for i, value in enumerate(values)
+        ).rstrip()
+
     try:
         with open(path, "w", encoding="utf-8") as file:
             file.write(f"# {title}\n")
-            file.write(f"# {columns}\n")
+            file.write(f"# {padded(names)}\n")
 
-            for row in rows:
-                file.write("|".join(str(value) for value in row) + "\n")
+            for row in texts:
+                file.write(f"  {padded(row)}\n")
 
         return True
 
@@ -536,7 +780,8 @@ def load_accounts():
 
     for parts in read_record_rows(ACCOUNT_FILE):
         try:
-            if len(parts) in (15, 16, 17) and not parts[3].isdigit():
+            # 18 columns: files saved while players had a current room
+            if len(parts) in (15, 16, 17, 18) and not parts[3].isdigit():
                 username, data = parse_account_row(parts)
             elif len(parts) in (16, 17):
                 username, data = parse_legacy_account_row(parts)
@@ -806,17 +1051,27 @@ def save_questions():
 # ----- Battle history (permanent record of every battle result) -----
 
 def record_battle_result(mob, result, gold_change, score_change, turns=0):
-    # Adds one line to the permanent battle history file
-    try:
-        with open(BATTLE_HISTORY_FILE, "a", encoding="utf-8") as file:
-            file.write(
-                f"{now_text()}|{player['id']}|{player['name']}|"
-                f"{mob['id'] if mob else 'N/A'}|"
-                f"{mob['name'] if mob else 'Dungeon Exit'}|"
-                f"{result}|{turns}|{gold_change}|{score_change}\n"
-            )
-    except OSError:
-        print("\nUnable to update the battle history file.")
+    # Adds one line to the permanent battle history file. The whole file
+    # is rewritten so every column stays lined up like a table.
+    rows = [
+        [r["date_time"], r["player_id"], r["username"], r["enemy_id"],
+         r["enemy_name"], r["result"], r["turns"], r["gold"], r["score"]]
+        for r in load_battle_results()
+    ]
+    rows.append([
+        now_text(), player["id"], player["name"],
+        mob["id"] if mob else "N/A",
+        mob["name"] if mob else "Dungeon Exit",
+        result, turns, gold_change, score_change
+    ])
+
+    write_record_rows(
+        BATTLE_HISTORY_FILE,
+        "DUNGEON CONQUEST BATTLE HISTORY",
+        "date_time|player_id|username|enemy_id|enemy_name|result|turns|"
+        "gold|score",
+        rows
+    )
 
 
 def load_battle_results():
@@ -1208,6 +1463,23 @@ def is_enemy_reachable(mob, cleared_ids=None):
     return mob["room"] in get_accessible_rooms(cleared_ids)
 
 
+def current_room_id():
+    # Where the player is on the map: the room of the enemy being fought,
+    # otherwise the room of the last enemy defeated, otherwise the entrance
+    mob = get_current_enemy()
+
+    if mob and mob["room"] in room_records:
+        return mob["room"]
+
+    for enemy_id in reversed(player.get("defeated_ids", [])):
+        mob = get_enemy_by_id(enemy_id)
+
+        if mob and mob["room"] in room_records:
+            return mob["room"]
+
+    return ENTRANCE_ROOM_ID
+
+
 def get_room_status(room_id, defeated_ids, accessible):
     if room_id == ENTRANCE_ROOM_ID:
         return "Entrance"
@@ -1355,8 +1627,10 @@ def get_room_levels():
     return levels
 
 
-def room_box_lines(room_id, status, defeated_ids, lineup_ids, box_width):
-    # Builds the four text lines of one room box
+def room_box_lines(room_id, status, defeated_ids, lineup_ids, box_width,
+                   here=False):
+    # Builds the four text lines of one room box. The player's room is
+    # drawn with a double border.
     markers = {"Entrance": "E", "Locked": "L", "Cleared": "C", "Open": "O"}
     inner = box_width - 4
 
@@ -1378,15 +1652,17 @@ def room_box_lines(room_id, status, defeated_ids, lineup_ids, box_width):
         extra = f" +{len(enemies) - 1}" if len(enemies) > 1 else ""
         detail = f"{mob['name'][:inner - 4 - len(extra)]}{extra} ({tag})"
 
+    edge = "+" + ("=" if here else "-") * (box_width - 2) + "+"
+
     return [
-        "+" + "-" * (box_width - 2) + "+",
+        edge,
         f"| {title[:inner]:<{inner}} |",
         f"| {detail[:inner]:<{inner}} |",
-        "+" + "-" * (box_width - 2) + "+"
+        edge
     ]
 
 
-def dungeon_drawing_lines(defeated_ids, lineup_ids=()):
+def dungeon_drawing_lines(defeated_ids, lineup_ids=(), here=None):
     # Draws the dungeon graph as rows of room boxes joined by lines.
     # Everything is generated from the live room and passage records.
     levels = get_room_levels()
@@ -1422,7 +1698,8 @@ def dungeon_drawing_lines(defeated_ids, lineup_ids=()):
                 get_room_status(room_id, set(defeated_ids), accessible),
                 defeated_ids,
                 lineup_ids,
-                box_width
+                box_width,
+                room_id == here
             )
             for room_id in level
         ]
@@ -1474,6 +1751,10 @@ def dungeon_drawing_lines(defeated_ids, lineup_ids=()):
     lines.append("Enemies: (W)eak (I)ntermediate (S)trong (B)oss "
                  "(Q) In Queue (x) Defeated")
 
+    if here in room_records:
+        lines.append(f"You    : +====+ box = you are here "
+                     f"({room_name(here)})")
+
     if extra:
         lines.append("Other passages:")
 
@@ -1493,7 +1774,9 @@ def dungeon_drawing_lines(defeated_ids, lineup_ids=()):
 def display_dungeon_map(pause_after=True):
     header("Dungeon Map (Graph)")
 
-    for line in dungeon_drawing_lines(player["defeated_ids"], encounter_lineup):
+    for line in dungeon_drawing_lines(
+        player["defeated_ids"], encounter_lineup, current_room_id()
+    ):
         print(line)
 
     if pause_after:
@@ -1825,19 +2108,16 @@ def view_inventory(pause_after=True, show_header=True):
     else:
         print("INVENTORY")
 
-    shown = 0
+    rows = [
+        [item["name"], f"{item_quantity(item_id)}/{item['max_carry']}",
+         describe_item_effect(item)]
+        for item_id, item in item_records.items()
+        if item_quantity(item_id) > 0
+    ]
 
-    for item_id, item in item_records.items():
-        qty = item_quantity(item_id)
-
-        if qty > 0:
-            shown += 1
-            print(
-                f"{item['name']:<16}: {qty}/{item['max_carry']}  "
-                f"({describe_item_effect(item)})"
-            )
-
-    if shown == 0:
+    if rows:
+        print_table(["Item", "Owned", "Effect"], rows, max_width=40)
+    else:
         print("Your inventory is empty.")
 
     if pause_after:
@@ -1856,46 +2136,47 @@ def view_enemy_records(pause_after=True, only_available=False):
     print(f"Next Goal       : {rank['next_unlock']}")
     print()
 
-    shown = 0
+    rows = []
 
     for mob in mob_list:
-        rank_ok = can_player_select_enemy(mob)
-        room_ok = mob["room"] in accessible
-
-        # When selecting an enemy, only show available choices
+        # When choosing an enemy to queue, only show available choices
         if only_available and (
             mob["defeated"]
-            or not rank_ok
-            or not room_ok
             or mob["id"] in encounter_lineup
+            or not can_player_select_enemy(mob)
+            or mob["room"] not in accessible
         ):
             continue
 
-        shown += 1
+        if mob["defeated"]:
+            status = "Defeated"
+        elif mob["id"] in encounter_lineup:
+            status = "In Queue"
+        else:
+            status = "Active"
 
-        if not rank_ok:
-            access = f"Locked (requires {mob['type']} rank)"
-        elif not room_ok:
-            access = "Locked (room not reachable yet)"
+        if not can_player_select_enemy(mob):
+            access = "Rank locked"
+        elif mob["room"] not in accessible:
+            access = "Room locked"
         else:
             access = "Unlocked"
 
-        print(
-            f"{mob['id']} | {mob['name']} | {mob['type']} | "
-            f"HP {mob['hp']}/{mob['max_hp']} | ATK {mob['atk']}"
-        )
-        print(
-            f"    Room: {room_name(mob['room'])} | "
-            f"Reward: {mob['gold_reward']} Gold, "
-            f"{mob['score_reward']} Score"
-        )
-        print(
-            f"    Status: {enemy_status(mob)} | Access: {access} | "
-            f"In Queue: {'Yes' if mob['id'] in encounter_lineup else 'No'}"
-        )
-        print("-" * 50)
+        rows.append([
+            mob["id"], mob["name"], mob["type"],
+            f"{mob['hp']}/{mob['max_hp']}", mob["atk"],
+            f"{mob['gold_reward']}/{mob['score_reward']}",
+            room_name(mob["room"]), status, access
+        ])
 
-    if shown == 0:
+    if rows:
+        print_table(
+            ["ID", "Name", "Difficulty", "HP", "ATK", "Gold/Score", "Room",
+             "Status", "Access"],
+            rows,
+            max_width=18
+        )
+    else:
         print("No available enemies match your current progress.")
 
     if pause_after:
@@ -2209,28 +2490,33 @@ def view_latest_battle_action():
     pause()
 
 
-def undo_latest_battle_action():
-    # POP: removes only the latest entry from the battle history stack
-    header("Undo Latest Battle Action")
+def remove_latest_log_entry():
+    # POP: removes only the latest entry from the battle history stack.
+    # It edits the log only; HP, gold and enemies are not rolled back.
+    header("Remove Latest Log Entry")
+
+    print("This removes the newest entry from the Action History Stack.")
+    print("It only edits the log. It does NOT undo the action itself:")
+    print("your HP, gold and the enemy stay exactly as they are.\n")
 
     if not battle_history:
-        print("No battle action is available to undo.")
+        print("The log is empty. There is nothing to remove.")
         pause()
         return
 
     latest = battle_history[-1]
 
-    print("Latest Battle Action:")
+    print("Latest Log Entry:")
     print(latest["description"])
 
-    if not ask_yes_no("\nRemove this action from the Stack? (Y/N): "):
+    if not ask_yes_no("\nRemove this entry from the Stack? (Y/N): "):
         print("\nNothing was removed.")
         pause()
         return
 
     battle_history.pop()
 
-    print("\nLatest battle action successfully removed from the Stack.")
+    print("\nLatest log entry removed from the Stack.")
     print("Your actual game progress was not changed.")
 
     display_battle_history()
@@ -2244,7 +2530,7 @@ def battle_log_menu():
 
         print("[1] View Battle Action History Stack")
         print("[2] View Latest Battle Action")
-        print("[3] Undo Latest Battle Action")
+        print("[3] Remove Latest Log Entry (does not undo the action)")
         print("[4] Back")
 
         choice = input("\nEnter choice [1-4]: ").strip()
@@ -2254,7 +2540,7 @@ def battle_log_menu():
         elif choice == "2":
             view_latest_battle_action()
         elif choice == "3":
-            undo_latest_battle_action()
+            remove_latest_log_entry()
         elif choice == "4":
             break
         else:
@@ -2297,9 +2583,18 @@ def start_battle_with_next_enemy():
         pause()
         return
 
+    if not confirm_risky_battle(mob):
+        print("\nYou stay back. Rest at camp, buy potions or use the Shop "
+              "first.")
+        pause()
+        return
+
     current_enemy_id = mob["id"]
     reset_battle_effects()
     set_player_status("In Battle")
+
+    print()
+    animate_battle_intro(mob)
 
     print(f"\nNext enemy: {mob['name']}.")
     print(f"Enemy HP     : {mob['hp']}/{mob['max_hp']}")
@@ -2317,6 +2612,39 @@ def start_battle_with_next_enemy():
 
     print("\nBattle started successfully.")
     pause()
+
+
+def estimate_battle(mob):
+    # Rough forecast if the player only attacks: how many attacks it
+    # takes to win and how much damage the enemy deals meanwhile
+    average_hit = (
+        player["atk"]
+        * (100 - PLAYER_MISS_CHANCE) / 100
+        * (1 + PLAYER_CRIT_CHANCE / 100 * (PLAYER_CRIT_MULTIPLIER - 1))
+    )
+    attacks = max(1, math.ceil(mob["hp"] / max(1, average_hit)))
+    enemy_hit = get_enemy_attack_power(mob)
+
+    # The enemy does not strike back after the killing blow
+    return attacks, enemy_hit, (attacks - 1) * enemy_hit
+
+
+def confirm_risky_battle(mob):
+    # Returns False if the player decides not to start a likely loss
+    attacks, enemy_hit, damage = estimate_battle(mob)
+
+    if damage < player["hp"]:
+        return True
+
+    print()
+    print(color("WARNING: this fight looks dangerous.", "red"))
+    print(f"  {mob['name']} hits for about {enemy_hit} per turn.")
+    print(f"  You need about {attacks} attacks to win and would take "
+          f"about {damage} damage.")
+    print(f"  You have {player['hp']}/{player['max_hp']} HP.")
+    print("  Defending, potions and items can still turn it around.")
+
+    return ask_yes_no("\nFight anyway? (Y/N): ")
 
 
 def validate_battle_action():
@@ -2408,7 +2736,9 @@ def process_enemy_counterattack(mob, guarding=False):
     if enemy_stunned_turns > 0:
         enemy_stunned_turns -= 1
 
-        print(f"\n{mob['name']} is paralyzed and cannot attack!")
+        print()
+        animate_effect(f"{mob['name']} twitches... zzzt!", "yellow", "~")
+        print(f"{mob['name']} is paralyzed and cannot attack!")
 
         push_battle_action(
             "Paralysis",
@@ -2423,7 +2753,10 @@ def process_enemy_counterattack(mob, guarding=False):
         and not boss_enrage_announced
     ):
         boss_enrage_announced = True
-        print(f"\n{mob['name']} becomes ENRAGED! Its attacks grow stronger.")
+        print()
+        animate_effect(f"{mob['name']} ROARS", "red", "!", frames=9)
+        print(color(f"{mob['name']} becomes ENRAGED! "
+                    "Its attacks grow stronger.", "red"))
         push_battle_action(
             "Enrage", f"{mob['name']} became enraged.", enemy=mob
         )
@@ -2433,12 +2766,21 @@ def process_enemy_counterattack(mob, guarding=False):
 
     player["hp"] = max(0, player["hp"] - damage)
 
+    print()
+    wait(0.3)
+    animate_strike(mob["name"], "Player", critical=critical)
+
+    if guarding:
+        animate_effect("CLANG! Your guard holds", "blue", "#", frames=4)
+
+    animate_hp_change("PLAYER", hp_before, player["hp"], player["max_hp"])
+
     if critical:
-        print(f"\nCritical hit from {mob['name']}!")
+        print(color(f"Critical hit from {mob['name']}!", "red"))
 
     guard_text = " (blocked by your guard)" if guarding else ""
 
-    print(f"\n{mob['name']} attacked Player for {damage} damage{guard_text}. "
+    print(f"{mob['name']} attacked Player for {damage} damage{guard_text}. "
           f"Player HP: {player['hp']}/{player['max_hp']}")
 
     push_battle_action(
@@ -2484,13 +2826,17 @@ def attack_current_enemy():
     strike, critical, missed, notes = calculate_player_attack()
     bonus_text = f" ({', '.join(notes)})" if notes else ""
 
+    animate_strike("Player", mob["name"], missed, critical)
+
     if missed:
         print(f"You attacked {mob['name']} but missed!")
         description = f"Player attacked {mob['name']} but missed."
     else:
         mob["hp"] = max(0, mob["hp"] - strike)
 
-        crit_text = "CRITICAL! " if critical else ""
+        animate_hp_change("ENEMY ", enemy_hp_before, mob["hp"], mob["max_hp"])
+
+        crit_text = color("CRITICAL! ", "yellow") if critical else ""
 
         print(f"{crit_text}Player attacked {mob['name']} for {strike} damage"
               f"{bonus_text}. {mob['name']} HP: {mob['hp']}/{mob['max_hp']}")
@@ -2524,7 +2870,9 @@ def defend_against_enemy():
     battle_turns += 1
     guard_bonus_ready = True
 
-    print(f"\nYou raise your guard. Next attack +{DEFEND_COUNTER_BONUS}% damage.")
+    print()
+    animate_effect("[ ] You raise your shield [ ]", "blue", "#")
+    print(f"You raise your guard. Next attack +{DEFEND_COUNTER_BONUS}% damage.")
 
     push_battle_action(
         "Defend",
@@ -2627,6 +2975,9 @@ def apply_item_effect(item, mob):
         heal = max(1, player["max_hp"] * item["power"] // 100)
         player["hp"] = min(player["max_hp"], player["hp"] + heal)
 
+        animate_effect("glug glug... healing light", "green", "+")
+        animate_hp_change("PLAYER", hp_before, player["hp"], player["max_hp"])
+
         print("Potion used successfully. Player health has been restored.")
         print(f"HP: {hp_before} -> {player['hp']} | "
               f"{item['name']} left: {remaining}")
@@ -2644,6 +2995,7 @@ def apply_item_effect(item, mob):
         boost_turns_left = BOOST_ATTACKS
         boost_percent = item["power"]
 
+        animate_effect("Power surges through you", "magenta", "^")
         print(f"{item['name']} used! Next {BOOST_ATTACKS} attacks "
               f"+{boost_percent}% damage. ({remaining} left)")
 
@@ -2654,7 +3006,10 @@ def apply_item_effect(item, mob):
         )
 
     elif effect == "stun":
+        animate_strike("Player", mob["name"])
+
         if random.randint(1, 100) <= STUN_CHANCE:
+            animate_effect("zzzt! ZZZT!", "yellow", "~")
             enemy_stunned_turns = item["power"]
             message = (
                 f"{mob['name']} was paralyzed for {item['power']} turns."
@@ -2672,6 +3027,10 @@ def apply_item_effect(item, mob):
         damage = random.randint(max(1, item["power"] - 5), item["power"] + 5)
         mob["hp"] = max(0, mob["hp"] - damage)
 
+        animate_strike("Player", mob["name"], critical=True)
+        animate_effect("BOOM!", "red", "*")
+        animate_hp_change("ENEMY ", enemy_hp_before, mob["hp"], mob["max_hp"])
+
         print(f"{item['name']} dealt {damage} damage! "
               f"{mob['name']} HP: {mob['hp']}/{mob['max_hp']} "
               f"({remaining} left)")
@@ -2686,6 +3045,7 @@ def apply_item_effect(item, mob):
         )
 
     elif effect == "escape":
+        animate_effect("poof! smoke everywhere", "cyan", "~")
         print(f"You throw the {item['name']} and slip away!")
         resolve_escape(mob, item["name"])
         save_current_player_account()
@@ -2738,9 +3098,14 @@ def answer_challenge_question():
         strike += question["bonus"]
         mob["hp"] = max(0, mob["hp"] - strike)
 
+        print()
+        animate_effect("Correct! Knowledge is power", "green", "?")
+        animate_strike("Player", mob["name"], critical=True)
+        animate_hp_change("ENEMY ", enemy_hp_before, mob["hp"], mob["max_hp"])
+
         crit_text = " CRITICAL!" if critical else ""
 
-        print(f"\nCorrect!{crit_text} Player attacked {mob['name']} for "
+        print(f"Correct!{crit_text} Player attacked {mob['name']} for "
               f"{strike} damage (+{question['bonus']} bonus). "
               f"{mob['name']} HP: {mob['hp']}/{mob['max_hp']}")
 
@@ -2780,14 +3145,17 @@ def attempt_flee():
 
     battle_turns += 1
 
+    print()
+    animate_effect("You make a run for it", "cyan", ">", frames=5)
+
     if random.randint(1, 100) <= FLEE_CHANCE:
-        print("\nYou escaped from the battle!")
+        print("You escaped from the battle!")
         resolve_escape(mob, "running away")
         save_current_player_account()
         pause()
         return
 
-    print(f"\n{mob['name']} blocks your escape!")
+    print(f"{mob['name']} blocks your escape!")
     push_battle_action(
         "Escape Failed",
         f"Player failed to escape from {mob['name']}.",
@@ -2864,7 +3232,9 @@ def resolve_enemy_victory(mob):
             enemy=mob
         )
 
-    print(f"\nVICTORY! Enemy defeated successfully: {mob['name']}")
+    print()
+    animate_banner("V I C T O R Y !", "green")
+    print(f"Enemy defeated successfully: {mob['name']}")
     print(f"Gold and score rewards have been added: "
           f"+{mob['gold_reward']} Gold, +{mob['score_reward']} Score")
 
@@ -2924,7 +3294,9 @@ def resolve_player_defeat(mob):
         player_hp_after=0
     )
 
-    print(f"\nDEFEAT! {mob['name']} defeated you. "
+    print()
+    animate_banner("D E F E A T", "red")
+    print(f"{mob['name']} defeated you. "
           f"You dropped {gold_lost} Gold. Losses: {player['losses']}")
 
     # The expedition ends, so the whole queue is cleared
@@ -3250,7 +3622,9 @@ def show_live_panel():
     # Live view of the player, the queue and the top of the stack
     mob = get_current_enemy()
 
-    print(f"PLAYER : {hp_bar(player['hp'], player['max_hp'])} "
+    player_bar = color(hp_bar(player["hp"], player["max_hp"]),
+                       hp_color(player["hp"], player["max_hp"]))
+    print(f"PLAYER : {player_bar} "
           f"{player['hp']}/{player['max_hp']} HP | ATK {player['atk']} | "
           f"Gold {player['gold']}")
 
@@ -3259,7 +3633,9 @@ def show_live_panel():
             " ENRAGED" if mob["type"] == "Boss"
             and mob["hp"] <= mob["max_hp"] // 2 else ""
         )
-        print(f"ENEMY  : {hp_bar(mob['hp'], mob['max_hp'])} "
+        enemy_bar = color(hp_bar(mob["hp"], mob["max_hp"]),
+                          hp_color(mob["hp"], mob["max_hp"]))
+        print(f"ENEMY  : {enemy_bar} "
               f"{mob['hp']}/{mob['max_hp']} HP | {mob['name']} | "
               f"ATK {get_enemy_attack_power(mob)}{enraged}")
 
@@ -3276,6 +3652,7 @@ def show_live_panel():
 
         print(f"EFFECTS: {', '.join(effects) or 'None'}")
 
+    print(f"ROOM   : {room_name(current_room_id())}")
     print(f"QUEUE  : {lineup_line()}")
 
     if battle_history:
@@ -3288,6 +3665,8 @@ def show_live_panel():
 
 def battle_menu():
     # Actions available while fighting the enemy at the queue front
+    notice = ""
+
     while current_enemy_id is not None:
         clear_screen()
         header(f"Battle: {get_current_enemy()['name']}")
@@ -3306,6 +3685,10 @@ def battle_menu():
                        "[6] Flee", width=22)
         print_menu_row("[7] View Queue", "[8] Action Stack", "[9] Stats",
                        "[10] Save", width=22)
+
+        if notice:
+            print(f"\n{notice}")
+            notice = ""
 
         choice = input("\nEnter choice [1-10]: ").strip()
 
@@ -3330,12 +3713,13 @@ def battle_menu():
         elif choice == "10":
             save_game_transaction()
         else:
-            invalid_choice()
+            notice = INVALID_CHOICE_TEXT
 
 
 def dungeon_menu():
     # Camp menu between battles. Battles open the battle menu.
     restore_player_for_new_transaction()
+    notice = ""
 
     while True:
         clear_screen()
@@ -3346,7 +3730,7 @@ def dungeon_menu():
 
         print(f"RANK   : {rank['rank']} | Next Goal: {rank['next_unlock']}")
 
-        print("\nENCOUNTER QUEUE")
+        print("\nEXPLORE AND ENCOUNTER QUEUE")
         print_menu_row("[1] Add Enemy to Queue", "[2] View Queue",
                        "[3] View Next Enemy")
         print("[4] Start Battle with Next Enemy")
@@ -3357,6 +3741,10 @@ def dungeon_menu():
                        "[10] Inventory")
         print_menu_row("[11] Save Game", "[12] Escape Dungeon",
                        "[13] Leave Dungeon")
+
+        if notice:
+            print(f"\n{notice}")
+            notice = ""
 
         choice = input("\nEnter choice [1-13]: ").strip()
 
@@ -3393,7 +3781,7 @@ def dungeon_menu():
             print("\nYou leave the dungeon. Your Encounter Queue is saved.")
             break
         else:
-            invalid_choice()
+            notice = INVALID_CHOICE_TEXT
 
 
 # ---------------------------------------------------------------
@@ -3542,11 +3930,19 @@ def profiling_menu():
 
 # ----- Player accounts -----
 
-def print_account_row(username, data):
-    print(f"{data['id']} | {username} | {data['role']} | "
-          f"HP {data['hp']}/{data['max_hp']} | ATK {data['atk']} | "
-          f"Gold {data['gold']} | Score {data['score']} | "
-          f"W/L {data['wins']}/{data['losses']} | {data['status']}")
+def print_account_table(accounts):
+    # accounts is a list of (username, data) pairs
+    print_table(
+        ["ID", "Username", "Role", "HP", "ATK", "Gold", "Score", "W/L",
+         "Status"],
+        [
+            [data["id"], username, data["role"],
+             f"{data['hp']}/{data['max_hp']}", data["atk"], data["gold"],
+             data["score"], f"{data['wins']}/{data['losses']}",
+             data["status"]]
+            for username, data in accounts
+        ]
+    )
 
 
 def find_account(prompt="Enter Username or Player ID: ", show_list=True):
@@ -3601,8 +3997,7 @@ def add_account_record():
 def view_account_records():
     header("All Accounts")
 
-    for username, data in account_records.items():
-        print_account_row(username, data)
+    print_account_table(account_records.items())
 
     print(f"\nTotal records: {len(account_records)}")
     pause()
@@ -3620,15 +4015,24 @@ def search_account_record():
     if not matches:
         print("\nPlayer record not found.")
     else:
+        print_account_table(matches)
+
+        rows = []
+
         for username, data in matches:
-            print_account_row(username, data)
-            items = ", ".join(
+            items = "\n".join(
                 f"{item_records.get(i, {}).get('name', i)} x{q}"
                 for i, q in data["inventory"].items()
             )
-            print(f"    Defeated: {', '.join(data['defeated_ids']) or 'None'}")
-            print(f"    Inventory: {items or 'Empty'}")
-            print(f"    Queue: {', '.join(data['lineup']) or 'Empty'}")
+            rows.append([
+                username,
+                ", ".join(data["defeated_ids"]) or "None",
+                items or "Empty",
+                ", ".join(data["lineup"]) or "Empty"
+            ])
+
+        print()
+        print_table(["Username", "Defeated", "Inventory", "Queue"], rows)
 
     pause()
 
@@ -3690,7 +4094,7 @@ def delete_account_record():
         pause()
         return
 
-    print_account_row(username, account_records[username])
+    print_account_table([(username, account_records[username])])
 
     if not ask_yes_no("\nDelete this account permanently? (Y/N): "):
         print("\nNothing was deleted.")
@@ -3706,11 +4110,16 @@ def delete_account_record():
 
 # ----- Enemies -----
 
-def print_enemy_row(mob):
-    print(f"{mob['id']} | {mob['name']} | {mob['type']} | "
-          f"HP {mob['max_hp']} | ATK {mob['atk']} | "
-          f"Gold {mob['gold_reward']} | Score {mob['score_reward']} | "
-          f"{mob['room']} {room_name(mob['room'])}")
+def print_enemy_table(mobs):
+    print_table(
+        ["ID", "Name", "Difficulty", "HP", "ATK", "Gold", "Score", "Room"],
+        [
+            [mob["id"], mob["name"], mob["type"], mob["max_hp"], mob["atk"],
+             mob["gold_reward"], mob["score_reward"],
+             f"{mob['room']} {room_name(mob['room'])}"]
+            for mob in mobs
+        ]
+    )
 
 
 def find_enemy_record(show_list=True):
@@ -3782,8 +4191,7 @@ def add_enemy_record():
 def view_enemy_record_table():
     header("All Enemies")
 
-    for mob in mob_list:
-        print_enemy_row(mob)
+    print_enemy_table(mob_list)
 
     print(f"\nTotal records: {len(mob_list)}")
     pause()
@@ -3802,8 +4210,8 @@ def search_enemy_record():
     if not matches:
         print("\nEnemy record not found.")
 
-    for mob in matches:
-        print_enemy_row(mob)
+    if matches:
+        print_enemy_table(matches)
 
     pause()
 
@@ -3845,7 +4253,7 @@ def delete_enemy_record():
         pause()
         return
 
-    print_enemy_row(mob)
+    print_enemy_table([mob])
 
     if not ask_yes_no("\nDelete this enemy permanently? (Y/N): "):
         print("\nNothing was deleted.")
@@ -3867,10 +4275,16 @@ def delete_enemy_record():
 
 # ----- Items -----
 
-def print_item_row(item):
-    print(f"{item['id']} | {item['name']} | {item['effect']} "
-          f"(power {item['power']}) | {item['price']} Gold | "
-          f"carry {item['max_carry']} | {describe_item_effect(item)}")
+def print_item_table(items):
+    print_table(
+        ["ID", "Name", "Effect", "Power", "Price", "Carry", "Description"],
+        [
+            [item["id"], item["name"], item["effect"], item["power"],
+             item["price"], item["max_carry"], describe_item_effect(item)]
+            for item in items
+        ],
+        max_width=30
+    )
 
 
 def find_item_record():
@@ -3945,8 +4359,7 @@ def add_item_record():
 def view_item_records():
     header("All Items")
 
-    for item in item_records.values():
-        print_item_row(item)
+    print_item_table(item_records.values())
 
     print(f"\nTotal records: {len(item_records)}")
     pause()
@@ -3965,8 +4378,8 @@ def search_item_record():
     if not matches:
         print("\nItem record not found.")
 
-    for item in matches:
-        print_item_row(item)
+    if matches:
+        print_item_table(matches)
 
     pause()
 
@@ -4004,7 +4417,7 @@ def delete_item_record():
         pause()
         return
 
-    print_item_row(item)
+    print_item_table([item])
 
     if not ask_yes_no("\nDelete this item? It is removed from every "
                       "inventory. (Y/N): "):
@@ -4026,11 +4439,16 @@ def delete_item_record():
 
 # ----- Rooms and passages -----
 
-def print_room_row(room):
-    enemies = ", ".join(m["name"] for m in get_room_enemies(room["id"]))
-    links = ", ".join(n for n, _ in get_neighbors(room["id"]))
-    print(f"{room['id']} | {room['name']} | {room['description']}")
-    print(f"    Enemies: {enemies or 'None'} | Links: {links or 'None'}")
+def print_room_table(rooms):
+    rows = []
+
+    for room in rooms:
+        enemies = "\n".join(m["name"] for m in get_room_enemies(room["id"]))
+        links = "\n".join(n for n, _ in get_neighbors(room["id"]))
+        rows.append([room["id"], room["name"], room["description"],
+                     enemies or "None", links or "None"])
+
+    print_table(["ID", "Name", "Description", "Enemies", "Links"], rows)
 
 
 def find_room_record():
@@ -4067,8 +4485,7 @@ def add_room_record():
 def view_room_records():
     header("All Rooms")
 
-    for room in room_records.values():
-        print_room_row(room)
+    print_room_table(room_records.values())
 
     print(f"\nTotal records: {len(room_records)}")
     pause()
@@ -4086,8 +4503,8 @@ def search_room_record():
     if not matches:
         print("\nRoom record not found.")
 
-    for room in matches:
-        print_room_row(room)
+    if matches:
+        print_room_table(matches)
 
     pause()
 
@@ -4131,7 +4548,7 @@ def delete_room_record():
         pause()
         return
 
-    print_room_row(room)
+    print_room_table([room])
 
     if not ask_yes_no("\nDelete this room and all its passages? (Y/N): "):
         print("\nNothing was deleted.")
@@ -4244,13 +4661,20 @@ def admin_view_map():
 
 # ----- Questions -----
 
-def print_question_row(question):
-    print(f"{question['id']} | {question['question']} "
-          f"(bonus +{question['bonus']})")
+def print_question_table(questions):
+    rows = []
 
-    for number, choice in enumerate(question["choices"], 1):
-        mark = " <- correct" if number == question["answer"] else ""
-        print(f"    [{number}] {choice}{mark}")
+    for question in questions:
+        choices = "\n".join(
+            f"[{number}] {choice}"
+            + (" *" if number == question["answer"] else "")
+            for number, choice in enumerate(question["choices"], 1)
+        )
+        rows.append([question["id"], question["question"], choices,
+                     f"+{question['bonus']}"])
+
+    print_table(["ID", "Question", "Choices (* = correct)", "Bonus"], rows,
+                max_width=30)
 
 
 def find_question_record():
@@ -4313,8 +4737,7 @@ def add_question_record():
 def view_question_records():
     header("All Questions")
 
-    for question in question_records:
-        print_question_row(question)
+    print_question_table(question_records)
 
     print(f"\nTotal records: {len(question_records)}")
     pause()
@@ -4332,8 +4755,8 @@ def search_question_record():
     if not matches:
         print("\nQuestion record not found.")
 
-    for question in matches:
-        print_question_row(question)
+    if matches:
+        print_question_table(matches)
 
     pause()
 
@@ -4364,7 +4787,7 @@ def delete_question_record():
         pause()
         return
 
-    print_question_row(question)
+    print_question_table([question])
 
     if not ask_yes_no("\nDelete this question? (Y/N): "):
         print("\nNothing was deleted.")
@@ -4408,7 +4831,7 @@ def view_player_progress():
     rank = get_rank_info(data["wins"])
 
     print()
-    print_account_row(username, data)
+    print_account_table([(username, data)])
     print(f"Rank            : {rank['rank']} ({rank['next_unlock']})")
     print(f"Completed Levels: {', '.join(data['completed_levels']) or 'None'}")
     print(f"Defeated Enemies: {len(data['defeated_ids'])}/{len(mob_list)}")
@@ -4484,8 +4907,7 @@ def assign_starting_items():
 def set_enemy_difficulty():
     header("Set Enemy Difficulty")
 
-    for mob in mob_list:
-        print_enemy_row(mob)
+    print_enemy_table(mob_list)
 
     print()
     mob = find_enemy_record(show_list=False)
@@ -4505,7 +4927,7 @@ def set_enemy_difficulty():
     save_enemies()
 
     print("\nEnemy updated:")
-    print_enemy_row(mob)
+    print_enemy_table([mob])
     pause()
 
 
@@ -4518,15 +4940,14 @@ def battle_history_lines(username=None):
     if not results:
         return ["No battle results have been recorded."]
 
-    lines = [f"{'Date/Time':<19} | {'Player':<10} | {'Enemy':<24} | "
-             f"{'Result':<15} | Turns | Gold | Score"]
-
-    for r in results:
-        lines.append(
-            f"{r['date_time']:<19} | {r['username']:<10} | "
-            f"{r['enemy_name']:<24} | {r['result']:<15} | "
-            f"{r['turns']:>5} | {r['gold']:>4} | {r['score']:>5}"
-        )
+    lines = table_lines(
+        ["Date/Time", "Player", "Enemy", "Result", "Turns", "Gold", "Score"],
+        [
+            [r["date_time"], r["username"], r["enemy_name"], r["result"],
+             r["turns"], r["gold"], r["score"]]
+            for r in results
+        ]
+    )
 
     lines.append(f"\nTotal battles: {len(results)}")
     return lines
@@ -4581,24 +5002,22 @@ def game_setup_menu():
 # ---------------------------------------------------------------
 
 def report_player_statistics():
-    lines = [f"{'ID':<8} {'Username':<10} {'HP':>9} {'ATK':>4} "
-             f"{'Gold':>5} {'Score':>6} {'Rank':<11} Status"]
-
-    for username, d in player_accounts().items():
-        lines.append(
-            f"{d['id']:<8} {username:<10} "
-            f"{str(d['hp']) + '/' + str(d['max_hp']):>9} {d['atk']:>4} "
-            f"{d['gold']:>5} {d['score']:>6} "
-            f"{get_rank_info(d['wins'])['rank']:<11} {d['status']}"
-        )
+    lines = table_lines(
+        ["ID", "Username", "HP", "ATK", "Gold", "Score", "Rank", "Status"],
+        [
+            [d["id"], username, f"{d['hp']}/{d['max_hp']}", d["atk"],
+             d["gold"], d["score"], get_rank_info(d["wins"])["rank"],
+             d["status"]]
+            for username, d in player_accounts().items()
+        ]
+    )
 
     lines.append(f"\nTotal players: {len(player_accounts())}")
     return lines
 
 
 def report_wins_losses():
-    lines = [f"{'Username':<10} {'Wins':>5} {'Losses':>7} {'Battles':>8} "
-             f"{'Win Rate':>9}"]
+    rows = []
     total_w = total_l = 0
 
     for username, d in player_accounts().items():
@@ -4606,73 +5025,85 @@ def report_wins_losses():
         rate = f"{d['wins'] * 100 / battles:.0f}%" if battles else "-"
         total_w += d["wins"]
         total_l += d["losses"]
-        lines.append(f"{username:<10} {d['wins']:>5} {d['losses']:>7} "
-                     f"{battles:>8} {rate:>9}")
+        rows.append([username, d["wins"], d["losses"], battles, rate])
 
+    lines = table_lines(
+        ["Username", "Wins", "Losses", "Battles", "Win Rate"], rows
+    )
     lines.append(f"\nTotal wins: {total_w} | Total losses: {total_l}")
     return lines
 
 
 def report_enemies_defeated():
     players = player_accounts()
-    lines = [f"{'Enemy':<26} {'Type':<13} Defeated By"]
+    rows = []
 
     for mob in mob_list:
         who = [u for u, d in players.items() if mob["id"] in d["defeated_ids"]]
-        lines.append(f"{mob['id'] + ' ' + mob['name']:<26} "
-                     f"{mob['type']:<13} {len(who)} "
-                     f"({', '.join(who) or 'none'})")
+        rows.append([mob["id"], mob["name"], mob["type"], len(who),
+                     ", ".join(who) or "none"])
 
+    lines = table_lines(
+        ["ID", "Enemy", "Difficulty", "Times", "Defeated By"], rows,
+        max_width=30
+    )
     lines.append("")
-
-    for username, d in players.items():
-        lines.append(f"{username}: {len(d['defeated_ids'])}/{len(mob_list)} "
-                     f"enemies defeated")
-
+    lines += table_lines(
+        ["Username", "Enemies Defeated"],
+        [
+            [username, f"{len(d['defeated_ids'])}/{len(mob_list)}"]
+            for username, d in players.items()
+        ]
+    )
     return lines
 
 
 def report_score_ranking():
     ranked = sorted(player_accounts().items(),
                     key=lambda pair: pair[1]["score"], reverse=True)
-    lines = [f"{'Place':<6} {'Username':<10} {'Score':>6} {'Wins':>5} "
-             f"Rank"]
 
-    for place, (username, d) in enumerate(ranked, 1):
-        lines.append(f"{place:<6} {username:<10} {d['score']:>6} "
-                     f"{d['wins']:>5} {get_rank_info(d['wins'])['rank']}")
-
-    return lines
+    return table_lines(
+        ["Place", "Username", "Score", "Wins", "Rank"],
+        [
+            [place, username, d["score"], d["wins"],
+             get_rank_info(d["wins"])["rank"]]
+            for place, (username, d) in enumerate(ranked, 1)
+        ]
+    )
 
 
 def report_boss_status():
     bosses = [m for m in mob_list if m["type"] == "Boss"]
     lines = ["Bosses: " + (", ".join(m["name"] for m in bosses) or "None"), ""]
-    lines.append(f"{'Username':<10} {'Boss Defeated':<14} Dungeon Escaped")
 
-    for username, d in player_accounts().items():
-        beaten = "Yes" if all_bosses_defeated(d["defeated_ids"]) else "No"
-        escaped = "Yes" if d["status"] == "Victorious" else "No"
-        lines.append(f"{username:<10} {beaten:<14} {escaped}")
-
+    lines += table_lines(
+        ["Username", "Boss Defeated", "Dungeon Escaped"],
+        [
+            [username,
+             "Yes" if all_bosses_defeated(d["defeated_ids"]) else "No",
+             "Yes" if d["status"] == "Victorious" else "No"]
+            for username, d in player_accounts().items()
+        ]
+    )
     return lines
 
 
 def report_available_items():
-    lines = [f"{'ID':<8} {'Name':<16} {'Effect':<7} {'Price':>5} "
-             f"{'Carry':>5} {'Owned':>6}  Description"]
+    rows = []
 
     for item in item_records.values():
         owned = sum(
             d["inventory"].get(item["id"], 0)
             for d in player_accounts().values()
         )
-        lines.append(f"{item['id']:<8} {item['name']:<16} "
-                     f"{item['effect']:<7} {item['price']:>5} "
-                     f"{item['max_carry']:>5} {owned:>6}  "
-                     f"{describe_item_effect(item)}")
+        rows.append([item["id"], item["name"], item["effect"], item["price"],
+                     item["max_carry"], owned, describe_item_effect(item)])
 
-    return lines
+    return table_lines(
+        ["ID", "Name", "Effect", "Price", "Carry", "Owned", "Description"],
+        rows,
+        max_width=30
+    )
 
 
 def report_enemy_difficulty():
@@ -4682,16 +5113,20 @@ def report_enemy_difficulty():
         mobs = [m for m in mob_list if m["type"] == tier]
         lines.append(f"{tier.upper()} ({len(mobs)} enemies)")
 
-        for mob in mobs:
-            lines.append(f"  {mob['id']} {mob['name']:<24} HP {mob['max_hp']:>4} "
-                         f"ATK {mob['atk']:>3} Gold {mob['gold_reward']:>4} "
-                         f"Score {mob['score_reward']:>4} "
-                         f"{room_name(mob['room'])}")
-
         if mobs:
+            lines += table_lines(
+                ["ID", "Name", "HP", "ATK", "Gold", "Score", "Room"],
+                [
+                    [mob["id"], mob["name"], mob["max_hp"], mob["atk"],
+                     mob["gold_reward"], mob["score_reward"],
+                     room_name(mob["room"])]
+                    for mob in mobs
+                ]
+            )
+
             avg_hp = sum(m["max_hp"] for m in mobs) // len(mobs)
             avg_atk = sum(m["atk"] for m in mobs) // len(mobs)
-            lines.append(f"  Average HP {avg_hp}, average ATK {avg_atk}")
+            lines.append(f"Average HP {avg_hp}, average ATK {avg_atk}")
 
         lines.append("")
 
