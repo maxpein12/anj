@@ -1,2 +1,5 @@
 # DUNGEON CONQUEST BATTLE HISTORY
-# date_time | player_id | username | enemy_id | enemy_name | result | turns | gold | score
+# date_time           | player_id | username | enemy_id | enemy_name        | result  | turns | gold | score
+  2026-10-26 13:04:12 | PLY-001   | max      | ENM-001  | Gravefang Rat     | Victory | 4     | 25   | 40
+  2026-10-26 13:04:57 | PLY-001   | max      | ENM-002  | Hollowbone Goblin | Victory | 7     | 30   | 60
+  2026-10-26 13:06:11 | PLY-001   | max      | ENM-003  | Ashen Ghoul       | Victory | 12    | 75   | 80
