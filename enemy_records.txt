@@ -1,0 +1,12 @@
+# DUNGEON CONQUEST ENEMY RECORDS
+# enemy_id|name|difficulty|max_hp|atk|gold_reward|score_reward|room_id
+ENM-001|Gravefang Rat|Weak|55|7|25|40|ROOM-001
+ENM-002|Hollowbone Goblin|Weak|70|9|30|60|ROOM-002
+ENM-003|Ashen Ghoul|Weak|85|11|35|80|ROOM-003
+ENM-004|Ironjaw Reaver|Intermediate|105|12|50|100|ROOM-004
+ENM-005|Boneguard Executioner|Intermediate|120|13|60|120|ROOM-005
+ENM-006|Hellchain Marauder|Intermediate|135|14|70|140|ROOM-006
+ENM-007|Dreadfang Berserker|Strong|150|16|85|180|ROOM-007
+ENM-008|Abyssal Death Knight|Strong|165|17|95|200|ROOM-008
+ENM-009|Soulreaper Wraith|Strong|180|18|110|220|ROOM-009
+ENM-010|Vharok, the World Eater|Boss|320|22|300|600|ROOM-010

@@ -1,0 +1,8 @@
+# DUNGEON CONQUEST PLAYER ACCOUNTS
+# username|player_id|password|role|hp|max_hp|atk|gold|score|wins|losses|status|defeated_enemy_ids|completed_levels|inventory|encounter_queue|wounded_enemy_hp
+admin|ADM-001|admin123|Admin|100|100|14|0|0|0|0|Active|||||
+player|PLY-001|player123|Player|100|100|14|60|0|0|0|Active|||ITM-001:2||
+knight|PLY-002|knight123|Player|95|120|19|110|180|3|1|Active|ENM-001,ENM-002,ENM-003|Weak|ITM-001:1||
+ranger|PLY-003|ranger123|Player|70|100|14|115|100|2|0|Active|ENM-001,ENM-002||ITM-001:1,ITM-005:1||
+mage|PLY-004|mage123|Player|100|100|14|45|60|1|2|Active|ENM-002||ITM-002:1||
+rogue|PLY-005|rogue123|Player|110|140|24|210|540|6|2|Active|ENM-001,ENM-002,ENM-003,ENM-004,ENM-005,ENM-006|Weak,Intermediate|ITM-001:3,ITM-004:1||

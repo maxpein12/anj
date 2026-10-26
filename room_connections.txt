@@ -1,0 +1,15 @@
+# DUNGEON CONQUEST ROOM CONNECTIONS (GRAPH EDGES, TWO-WAY)
+# room_a|room_b|passage_name
+ROOM-000|ROOM-001|Rusted Grate
+ROOM-000|ROOM-002|Collapsed Stairway
+ROOM-001|ROOM-003|Flooded Passage
+ROOM-002|ROOM-003|Bone-Lined Corridor
+ROOM-003|ROOM-004|Crimson Gate
+ROOM-003|ROOM-005|Hangman's Path
+ROOM-004|ROOM-006|Chain Bridge
+ROOM-005|ROOM-006|Cell Block Door
+ROOM-006|ROOM-007|Scorched Tunnel
+ROOM-006|ROOM-008|Iron Drawbridge
+ROOM-007|ROOM-009|Whispering Stair
+ROOM-008|ROOM-009|Shadow Archway
+ROOM-009|ROOM-010|Throne Gate
